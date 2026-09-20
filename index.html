@@ -220,9 +220,19 @@
                 </div>
 
                 <!-- Options Bar for TA -->
-                <div class="flex items-center space-x-2 space-x-reverse mb-6 text-xs text-slate-600">
-                    <input type="checkbox" id="requireGpsToggle" checked class="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500">
-                    <label for="requireGpsToggle" class="font-medium cursor-pointer">اشتراط موقع الـ GPS للطلاب عند التسجيل (يتحقق من النطاق الجغرافي)</label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6 bg-amber-50/60 p-3 rounded-xl border border-amber-200/60 text-xs">
+                    <div class="flex items-center space-x-2 space-x-reverse">
+                        <input type="checkbox" id="requireGpsToggle" checked class="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500">
+                        <label for="requireGpsToggle" class="font-bold text-slate-700 cursor-pointer">اشتراط موقع الـ GPS للطلاب عند التسجيل</label>
+                    </div>
+                    <div class="flex items-center space-x-2 space-x-reverse">
+                        <label class="font-medium text-slate-600">نطاق المعمل (المسافة المسموحة):</label>
+                        <select id="adminGpsRadius" class="bg-white border border-slate-300 rounded px-2 py-1 font-bold text-teal-800 focus:outline-none">
+                            <option value="150">150 متر (موقع دقيق جداً)</option>
+                            <option value="300" selected>300 متر (موصى به للمباني)</option>
+                            <option value="500">500 متر (تغطية ضعيفة)</option>
+                        </select>
+                    </div>
                 </div>
 
                 <!-- Live Active Session Details -->
@@ -410,10 +420,10 @@
             return R * c;
         }
 
-        // Student Location Capture
+        // Student Location Capture with High Accuracy
         window.verifyStudentLocation = function() {
             const badge = document.getElementById('locationStatusBadge');
-            badge.innerText = "جاري الحساب...";
+            badge.innerText = "جاري الحساب بطاقة عالية...";
             badge.className = "text-[11px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full";
 
             if (!navigator.geolocation) {
@@ -423,6 +433,8 @@
                 return;
             }
 
+            const geoOptions = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
+
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     studentCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -431,11 +443,23 @@
                     showToast('تم تحديد موقعك بنجاح!', 'success');
                 },
                 (err) => {
-                    badge.innerText = "فشل التقاط الموقع";
-                    badge.className = "text-[11px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full";
-                    showToast('يرجى تفعيل الـ GPS وإعطاء الإذن للمتصفح', 'error');
+                    // Fallback to low accuracy if high accuracy times out indoors
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            studentCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                            badge.innerText = "تم التقاط الموقع (تقريبي) ✓";
+                            badge.className = "text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full";
+                            showToast('تم تحديد موقعك التقريبي بنجاح!', 'success');
+                        },
+                        (err2) => {
+                            badge.innerText = "فشل التقاط الموقع";
+                            badge.className = "text-[11px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full";
+                            showToast('يرجى تفعيل الـ GPS وإعطاء الإذن للمتصفح', 'error');
+                        },
+                        { enableHighAccuracy: false, timeout: 8000 }
+                    );
                 },
-                { enableHighAccuracy: false, timeout: 8000 }
+                geoOptions
             );
         };
 
@@ -469,7 +493,7 @@
                 document.getElementById('activeSessionTitle').innerText = `${activeSessionData.course} - سكشن ${activeSessionData.sectionNum}`;
                 document.getElementById('activeSessionPin').innerText = activeSessionData.pinCode;
                 document.getElementById('activeSessionCoords').innerText = activeSessionData.requireGps ? 
-                    `إحداثيات المعمل: Lat ${activeSessionData.lat?.toFixed(4) || '30.0'}, Lng ${activeSessionData.lng?.toFixed(4) || '31.0'}` : 
+                    `موقع المعمل: Lat ${activeSessionData.lat?.toFixed(4) || '30.0'} (نطاق ${activeSessionData.allowedRadius || 300}m)` : 
                     `حالة الجلسة: مفعلة بدون اشتراط موقع GPS`;
             } else {
                 panel.classList.add('hidden');
@@ -481,6 +505,7 @@
             const course = document.getElementById('adminCourse').value;
             const sectionNum = document.getElementById('adminSectionNum').value;
             const requireGps = document.getElementById('requireGpsToggle').checked;
+            const radius = parseInt(document.getElementById('adminGpsRadius').value) || 300;
 
             const pin = Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -492,6 +517,7 @@
                     lat: lat,
                     lng: lng,
                     requireGps: requireGps,
+                    allowedRadius: radius,
                     isActive: true,
                     startTime: new Date().toISOString()
                 };
@@ -509,10 +535,10 @@
                 navigator.geolocation.getCurrentPosition(
                     (pos) => saveAndPublishSession(pos.coords.latitude, pos.coords.longitude),
                     (err) => {
-                        showToast('تم فتح الجلسة وتأمينها بالرمز وبصمة الجهاز!', 'info');
+                        showToast('تعذر جلب موقع المعمل بدقة، تم فتح الجلسة وتأمينها بالرمز الفعّال!', 'info');
                         saveAndPublishSession();
                     },
-                    { enableHighAccuracy: false, timeout: 4000 }
+                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
                 );
             } else {
                 saveAndPublishSession();
@@ -581,8 +607,10 @@
                     return;
                 }
                 const dist = calculateDistanceMeters(studentCoords.lat, studentCoords.lng, activeSessionData.lat, activeSessionData.lng);
-                if (dist > 80) { // 80 meters allowance
-                    showToast(`أنت خارج نطاق المعمل! المسافة بينك وبين المعيد (${Math.round(dist)} متر)`, 'error');
+                const maxAllowed = activeSessionData.allowedRadius || 300;
+
+                if (dist > maxAllowed) {
+                    showToast(`أنت خارج نطاق المعمل! المسافة بينك وبين المعيد (${Math.round(dist)} متر - المسموح ${maxAllowed}m)`, 'error');
                     return;
                 }
                 distanceText = Math.round(dist) + 'm (GPS)';
